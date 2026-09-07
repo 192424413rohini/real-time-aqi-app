@@ -1,7 +1,8 @@
 streamlit
-streamlit-autorefresh
 pandas
 numpy
 requests
 scikit-learn
 matplotlib
+joblib
+streamlit-autorefresh
