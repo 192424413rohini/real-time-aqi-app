@@ -2,10 +2,13 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
+import joblib
+
+from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from sklearn.ensemble import GradientBoostingRegressor
 from streamlit_autorefresh import st_autorefresh
+
 
 # =========================================================
 # PAGE CONFIGURATION
@@ -17,6 +20,7 @@ st.set_page_config(
     layout="wide"
 )
 
+
 # =========================================================
 # AUTO REFRESH - EVERY 10 MINUTES
 # =========================================================
@@ -25,6 +29,7 @@ st_autorefresh(
     interval=10 * 60 * 1000,
     key="aqi_auto_refresh"
 )
+
 
 # =========================================================
 # TAMIL NADU CITIES
@@ -48,6 +53,7 @@ cities = {
     "Cuddalore": (11.7480, 79.7714)
 }
 
+
 # =========================================================
 # AQI CATEGORY
 # =========================================================
@@ -68,6 +74,10 @@ def get_aqi_category(aqi):
         return "Hazardous"
 
 
+# =========================================================
+# HEALTH RISK
+# =========================================================
+
 def get_health_risk(aqi):
 
     if aqi <= 50:
@@ -82,6 +92,10 @@ def get_health_risk(aqi):
         return "Severe"
 
 
+# =========================================================
+# AFFECTED POPULATION
+# =========================================================
+
 def get_population(aqi):
 
     if aqi <= 50:
@@ -95,6 +109,10 @@ def get_population(aqi):
     else:
         return "Entire population is at serious risk"
 
+
+# =========================================================
+# HEALTH PRECAUTION
+# =========================================================
 
 def get_precaution(aqi):
 
@@ -115,7 +133,7 @@ def get_precaution(aqi):
 
 
 # =========================================================
-# GET CURRENT IST TIME
+# CURRENT IST TIME
 # =========================================================
 
 def current_ist_time():
@@ -126,7 +144,38 @@ def current_ist_time():
 
 
 # =========================================================
-# FETCH REAL-TIME AIR QUALITY
+# ORIGINAL JOBLIB MODEL PATHS
+# =========================================================
+
+MODEL_PATH = Path(
+    "ml/models/best_aqi_model.joblib"
+)
+
+SCALER_PATH = Path(
+    "ml/models/scaler.joblib"
+)
+
+
+# =========================================================
+# LOAD ORIGINAL MODEL + SCALER
+# =========================================================
+
+@st.cache_resource
+def load_original_model():
+
+    model = joblib.load(
+        MODEL_PATH
+    )
+
+    scaler = joblib.load(
+        SCALER_PATH
+    )
+
+    return model, scaler
+
+
+# =========================================================
+# OPEN-METEO AIR QUALITY API
 # =========================================================
 
 @st.cache_data(ttl=600)
@@ -134,11 +183,17 @@ def get_air_quality(city):
 
     latitude, longitude = cities[city]
 
-    url = "https://air-quality-api.open-meteo.com/v1/air-quality"
+    url = (
+        "https://air-quality-api.open-meteo.com/"
+        "v1/air-quality"
+    )
 
     params = {
+
         "latitude": latitude,
+
         "longitude": longitude,
+
         "current": (
             "us_aqi,"
             "pm2_5,"
@@ -148,9 +203,17 @@ def get_air_quality(city):
             "sulphur_dioxide,"
             "ozone"
         ),
-        "hourly": "us_aqi,pm2_5,pm10",
+
+        "hourly": (
+            "us_aqi,"
+            "pm2_5,"
+            "pm10"
+        ),
+
         "timezone": "Asia/Kolkata",
+
         "past_days": 1,
+
         "forecast_days": 1
     }
 
@@ -166,84 +229,33 @@ def get_air_quality(city):
 
 
 # =========================================================
-# TRAIN GRADIENT BOOSTING MODEL
-# =========================================================
-
-@st.cache_resource
-def train_model():
-
-    np.random.seed(42)
-
-    n = 1500
-
-    pm25 = np.random.uniform(5, 150, n)
-    pm10 = np.random.uniform(10, 250, n)
-    co = np.random.uniform(100, 1500, n)
-    no2 = np.random.uniform(5, 100, n)
-    so2 = np.random.uniform(2, 80, n)
-    o3 = np.random.uniform(10, 220, n)
-
-    aqi = (
-        pm25 * 1.45
-        + pm10 * 0.18
-        + co * 0.025
-        + no2 * 0.55
-        + so2 * 0.18
-        + o3 * 0.30
-    )
-
-    aqi = np.clip(
-        aqi + np.random.normal(0, 4, n),
-        0,
-        500
-    )
-
-    X = pd.DataFrame({
-        "PM2.5": pm25,
-        "PM10": pm10,
-        "CO": co,
-        "NO2": no2,
-        "SO2": so2,
-        "O3": o3
-    })
-
-    y = aqi
-
-    model = GradientBoostingRegressor(
-        n_estimators=100,
-        learning_rate=0.1,
-        max_depth=6,
-        random_state=42
-    )
-
-    model.fit(X, y)
-
-    return model
-
-
-# =========================================================
 # HEADER
 # =========================================================
 
-st.title("🌍 Real-Time Air Quality Monitoring and AQI Prediction")
+st.title(
+    "🌍 Real-Time Air Quality Monitoring and AQI Prediction"
+)
 
 st.markdown(
     "### Tamil Nadu Air Quality Monitoring System"
 )
 
 st.info(
-    "🔄 Live data automatically refreshes every 10 minutes."
+    "🔄 Live air-quality data automatically refreshes every 10 minutes."
 )
 
 st.caption(
-    f"Last application update: {current_ist_time()}"
+    f"Last Updated: {current_ist_time()}"
 )
 
+
 # =========================================================
-# CITY SELECTION
+# SIDEBAR
 # =========================================================
 
-st.sidebar.header("📍 Location")
+st.sidebar.header(
+    "📍 Location"
+)
 
 selected_city = st.sidebar.selectbox(
     "Select Tamil Nadu City",
@@ -254,25 +266,67 @@ st.sidebar.success(
     "Data Source: Open-Meteo Air Quality API"
 )
 
+
 # =========================================================
-# FETCH DATA
+# FETCH LIVE DATA
 # =========================================================
 
 try:
 
-    data = get_air_quality(selected_city)
+    data = get_air_quality(
+        selected_city
+    )
 
     current = data["current"]
 
-    aqi = float(current.get("us_aqi", 0))
-    pm25 = float(current.get("pm2_5", 0))
-    pm10 = float(current.get("pm10", 0))
-    co = float(current.get("carbon_monoxide", 0))
-    no2 = float(current.get("nitrogen_dioxide", 0))
-    so2 = float(current.get("sulphur_dioxide", 0))
-    o3 = float(current.get("ozone", 0))
+    actual_aqi = float(
+        current.get(
+            "us_aqi",
+            0
+        )
+    )
 
-    category = get_aqi_category(aqi)
+    pm25 = float(
+        current.get(
+            "pm2_5",
+            0
+        )
+    )
+
+    pm10 = float(
+        current.get(
+            "pm10",
+            0
+        )
+    )
+
+    co = float(
+        current.get(
+            "carbon_monoxide",
+            0
+        )
+    )
+
+    no2 = float(
+        current.get(
+            "nitrogen_dioxide",
+            0
+        )
+    )
+
+    so2 = float(
+        current.get(
+            "sulphur_dioxide",
+            0
+        )
+    )
+
+    o3 = float(
+        current.get(
+            "ozone",
+            0
+        )
+    )
 
 except Exception as e:
 
@@ -287,51 +341,61 @@ except Exception as e:
 # MODULE 1
 # =========================================================
 
-st.header("Module 1: Real-Time Air Quality Data Acquisition and Monitoring")
+st.header(
+    "Module 1: Real-Time Air Quality Data Acquisition and Monitoring"
+)
 
 st.write(
     f"Currently monitoring **{selected_city}, Tamil Nadu**."
 )
 
-# ---------------------------------------------------------
+
+# =========================================================
 # AQI SUMMARY
-# ---------------------------------------------------------
+# =========================================================
 
-col1, col2, col3, col4 = st.columns(4)
+category = get_aqi_category(
+    actual_aqi
+)
 
-with col1:
+c1, c2, c3, c4 = st.columns(4)
+
+with c1:
 
     st.metric(
         "Current AQI",
-        f"{aqi:.0f}"
+        f"{actual_aqi:.0f}"
     )
 
-with col2:
+with c2:
 
     st.metric(
         "AQI Category",
         category
     )
 
-with col3:
+with c3:
 
     st.metric(
         "PM2.5",
         f"{pm25:.1f} µg/m³"
     )
 
-with col4:
+with c4:
 
     st.metric(
         "PM10",
         f"{pm10:.1f} µg/m³"
     )
 
-# ---------------------------------------------------------
-# POLLUTANTS
-# ---------------------------------------------------------
 
-st.subheader("Air Quality Parameters")
+# =========================================================
+# POLLUTANTS
+# =========================================================
+
+st.subheader(
+    "Air Quality Parameters"
+)
 
 p1, p2, p3, p4, p5, p6 = st.columns(6)
 
@@ -371,30 +435,52 @@ with p6:
         f"{o3:.1f}"
     )
 
-st.caption(
-    "Pollutant concentrations are provided by the Open-Meteo Air Quality API."
-)
 
 # =========================================================
 # HISTORICAL DATA
 # =========================================================
 
-st.subheader("📊 Historical Air Quality")
+st.subheader(
+    "📊 Historical Air Quality"
+)
 
-hourly = data.get("hourly", {})
+hourly = data.get(
+    "hourly",
+    {}
+)
 
 if hourly:
 
-    times = hourly.get("time", [])
-    aqi_values = hourly.get("us_aqi", [])
-    pm25_values = hourly.get("pm2_5", [])
-    pm10_values = hourly.get("pm10", [])
+    times = hourly.get(
+        "time",
+        []
+    )
+
+    aqi_values = hourly.get(
+        "us_aqi",
+        []
+    )
+
+    pm25_values = hourly.get(
+        "pm2_5",
+        []
+    )
+
+    pm10_values = hourly.get(
+        "pm10",
+        []
+    )
 
     history = pd.DataFrame({
+
         "Time": times,
+
         "AQI": aqi_values,
+
         "PM2.5": pm25_values,
+
         "PM10": pm10_values
+
     })
 
     history["Time"] = pd.to_datetime(
@@ -406,8 +492,14 @@ if hourly:
     if not history.empty:
 
         st.line_chart(
-            history.set_index("Time")[
-                ["AQI", "PM2.5", "PM10"]
+            history.set_index(
+                "Time"
+            )[
+                [
+                    "AQI",
+                    "PM2.5",
+                    "PM10"
+                ]
             ]
         )
 
@@ -427,28 +519,62 @@ st.header(
 )
 
 st.write(
-    "The live pollutant values from Module 1 are passed to the machine-learning model."
+    "Live pollutant values from Module 1 are passed to the original trained Gradient Boosting model."
 )
 
+
 # =========================================================
-# MODEL PREDICTION
+# LOAD ORIGINAL MODEL
 # =========================================================
 
-model = train_model()
+try:
 
-input_data = pd.DataFrame({
+    model, scaler = load_original_model()
 
-    "PM2.5": [pm25],
-    "PM10": [pm10],
-    "CO": [co],
-    "NO2": [no2],
-    "SO2": [so2],
-    "O3": [o3]
+except Exception as e:
 
-})
+    st.error(
+        "Original ML model files could not be loaded."
+    )
+
+    st.code(
+        f"Error: {e}"
+    )
+
+    st.stop()
+
+
+# =========================================================
+# MODEL INPUT
+# =========================================================
+
+model_input = np.array([[
+    pm25,
+    pm10,
+    co,
+    no2,
+    so2,
+    o3
+]])
+
+
+# =========================================================
+# ORIGINAL SCALER
+# =========================================================
+
+scaled_input = scaler.transform(
+    model_input
+)
+
+
+# =========================================================
+# ORIGINAL MODEL PREDICTION
+# =========================================================
 
 predicted_aqi = float(
-    model.predict(input_data)[0]
+    model.predict(
+        scaled_input
+    )[0]
 )
 
 predicted_aqi = np.clip(
@@ -457,17 +583,23 @@ predicted_aqi = np.clip(
     500
 )
 
-prediction_category = get_aqi_category(
-    predicted_aqi
-)
-
-difference = predicted_aqi - aqi
 
 # =========================================================
 # PREDICTION RESULTS
 # =========================================================
 
-st.subheader("🤖 AQI Prediction")
+prediction_category = get_aqi_category(
+    predicted_aqi
+)
+
+difference = (
+    predicted_aqi -
+    actual_aqi
+)
+
+st.subheader(
+    "🤖 AQI Prediction"
+)
 
 m1, m2, m3 = st.columns(3)
 
@@ -475,7 +607,7 @@ with m1:
 
     st.metric(
         "Actual AQI",
-        f"{aqi:.0f}"
+        f"{actual_aqi:.0f}"
     )
 
 with m2:
@@ -492,8 +624,9 @@ with m3:
         f"{difference:+.1f}"
     )
 
+
 # =========================================================
-# HEALTH RISK
+# HEALTH RISK ASSESSMENT
 # =========================================================
 
 risk = get_health_risk(
@@ -508,7 +641,9 @@ precaution = get_precaution(
     predicted_aqi
 )
 
-st.subheader("🏥 Health Risk Assessment")
+st.subheader(
+    "🏥 Health Risk Assessment"
+)
 
 h1, h2 = st.columns(2)
 
@@ -534,11 +669,14 @@ st.write(
     f"**Health Precaution:** {precaution}"
 )
 
+
 # =========================================================
 # ACTUAL VS PREDICTED CHART
 # =========================================================
 
-st.subheader("📈 Actual AQI vs Predicted AQI")
+st.subheader(
+    "📈 Actual AQI vs Predicted AQI"
+)
 
 comparison = pd.DataFrame({
 
@@ -548,21 +686,26 @@ comparison = pd.DataFrame({
     ],
 
     "AQI": [
-        aqi,
+        actual_aqi,
         predicted_aqi
     ]
 
 })
 
 st.bar_chart(
-    comparison.set_index("AQI Type")
+    comparison.set_index(
+        "AQI Type"
+    )
 )
+
 
 # =========================================================
 # SYSTEM WORKFLOW
 # =========================================================
 
-st.header("⚙️ System Workflow")
+st.header(
+    "⚙️ System Workflow"
+)
 
 st.markdown("""
 **Tamil Nadu City Selection**
@@ -573,19 +716,19 @@ st.markdown("""
 
 ↓
 
-**Real-Time Pollutant Data Acquisition**
+**Real-Time Air Quality Data Acquisition**
 
 ↓
 
-**AQI and Pollutant Monitoring**
+**AQI + PM2.5 + PM10 + CO + NO₂ + SO₂ + O₃**
 
 ↓
 
-**PM2.5, PM10, CO, NO₂, SO₂, O₃**
+**Original StandardScaler**
 
 ↓
 
-**Machine Learning Model**
+**Original Gradient Boosting Model**
 
 ↓
 
@@ -597,34 +740,30 @@ st.markdown("""
 
 ↓
 
-**Affected Population and Precautions**
+**Affected Population + Precautions**
 """)
+
 
 # =========================================================
 # MODEL INFORMATION
 # =========================================================
 
-st.header("🧠 Machine Learning Model")
+st.header(
+    "🧠 Machine Learning Model"
+)
 
 st.write(
     "**Algorithm:** Gradient Boosting Regressor"
 )
 
 st.write(
-    "**Estimators:** 100"
+    "**Model:** Original trained `.joblib` model"
 )
 
 st.write(
-    "**Learning Rate:** 0.1"
+    "**Preprocessing:** Original `StandardScaler`"
 )
 
-st.write(
-    "**Maximum Depth:** 6"
-)
-
-st.write(
-    "**Random State:** 42"
-)
 
 # =========================================================
 # FOOTER
@@ -637,7 +776,12 @@ st.caption(
 )
 
 st.caption(
-    "Data source: Open-Meteo Air Quality API | Location scope: Tamil Nadu"
+    "Data Source: Open-Meteo Air Quality API"
+
+)
+
+st.caption(
+    "Location Scope: Tamil Nadu"
 )
 
 st.caption(
